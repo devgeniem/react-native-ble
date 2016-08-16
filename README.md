@@ -9,6 +9,8 @@ npm i --save react-native-ble
 ```
 Next see the [react native linking guide](https://facebook.github.io/react-native/docs/linking-libraries.html) for visual instructions, but you need to open your project and from node_modules/react-native-estimote drag RNBLE.xcodeproj into your project file browser under Libraries. Then, navigate to your top level project and for your main target, click Build Phases and drag the RNBLE.a Product into the Link Binary With Libraries section. Finally, click the plus button and add CoreBluetooth.framework as well.
 
+On Android, also see https://facebook.github.io/react-native/docs/native-modules-android.html#register-the-module in the paragraph starting "The package needs to be provided..." for the required edits to `getPackages()` in `MainApplication.java`.
+
 #use
 See the [noble](https://github.com/sandeepmistry/noble/) api for usage
 ```
