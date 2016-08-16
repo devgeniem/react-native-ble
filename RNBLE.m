@@ -412,11 +412,8 @@ RCT_EXPORT_METHOD(write:(NSString *)peripheralUuid serviceUuid:(NSString *)servi
             NSLog(@"Could not find characteristic for UUID: %@", characteristicUuid);
         }
     } else {
-      NSLog(@"Could not find characteristic for UUID: %@", characteristicUuid);
+        NSLog(@"Could not find peripheral for UUID: %@", peripheralUuid);
     }
-  } else {
-    NSLog(@"Could not find peripheral for UUID: %@", peripheralUuid);
-  }
 }
 
 RCT_EXPORT_METHOD(notify:(NSString *)peripheralUuid serviceUuid:(NSString *)serviceUuid characteristicUuid:(NSString *)characteristicUuid notify:(BOOL)notify)
