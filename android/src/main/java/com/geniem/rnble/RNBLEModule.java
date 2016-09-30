@@ -1,4 +1,4 @@
-/* 
+/*
 
 The MIT License (MIT)
 
@@ -77,7 +77,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
     private String serviceUuid;
     private String bluetoothDeviceAddress;
     private BluetoothGatt bluetoothGatt;
-    private int connectionState = STATE_DISCONNECTED;    
+    private int connectionState = STATE_DISCONNECTED;
     private List<BluetoothGattService> discoveredServices;
     private List<String> scannedDeviceAddresses = new ArrayList<String>();
     private Boolean allowDuplicates = false;
@@ -116,15 +116,15 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
     public void getState() {
         WritableMap params = Arguments.createMap();
         if (bluetoothAdapter == null) {
-            params.putString("state", "unsupported");            
+            params.putString("state", "unsupported");
         } else {
-            params.putString("state",stateToString(bluetoothAdapter.getState()));            
+            params.putString("state",stateToString(bluetoothAdapter.getState()));
         }
         sendEvent("ble.stateChange", params);
     }
 
     @ReactMethod
-    public void startScanning(String serviceUuid, Boolean allowDuplicates) {        
+    public void startScanning(String serviceUuid, Boolean allowDuplicates) {
         Log.d(TAG, "RNBLE startScanning - service uuid: " + serviceUuid);
         if(bluetoothLeScanner != null){
             if (scanCallback == null) {
@@ -132,7 +132,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 scannedDeviceAddresses.clear();
                 this.serviceUuid = serviceUuid;
                 scanCallback = new RnbleScanCallback(this);
-                bluetoothLeScanner.startScan(buildScanFilters(), buildScanSettings(), scanCallback);
+                bluetoothLeScanner.startScan(null, buildScanSettings(), scanCallback);
             }
         }
 
@@ -145,7 +145,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
     public void stopScanning() {
         if(bluetoothLeScanner != null && scanCallback != null){
             bluetoothLeScanner.stopScan(scanCallback);
-            scanCallback = null;            
+            scanCallback = null;
         }
     }
 
@@ -163,6 +163,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
             params.putMap("error", error);
 
         } else {
+            Log.d(TAG, "BluetoothGatt disconnect");
             bluetoothGatt.disconnect();
         }
         connectionState = STATE_DISCONNECTED;
@@ -174,11 +175,11 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         Log.d(TAG, "RNBLE Connect called");
         if (bluetoothAdapter == null || peripheralUuid == null) {
             Log.w(TAG, "BluetoothAdapter not initialized or unspecified peripheralUuid.");
-            
+
             WritableMap error = Arguments.createMap();
             error.putInt("erroCode", -1);
             error.putString("errorMessage", "BluetoothAdapter not initialized or unspecified peripheralUuid.");
-            
+
             WritableMap params = Arguments.createMap();
             params.putString("peripheralUuid", peripheralUuid);
             params.putMap("error", error);
@@ -213,7 +214,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
             this.sendEvent("ble.connect", params);
             return;
         }
-    
+
         // We want to directly connect to the device, so we are setting the autoConnect
         // parameter to false.
         if(bluetoothGatt != null) {bluetoothGatt.close();}
@@ -245,7 +246,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 filteredServiceUuids.pushString(toNobleUuid(uuid));
             }
         }
-        
+
         WritableMap params = Arguments.createMap();
         params.putString("peripheralUuid", peripheralUuid);
         params.putArray("serviceUuids", filteredServiceUuids);
@@ -256,29 +257,29 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
     @ReactMethod
     public void discoverCharacteristics(final String peripheralUuid, final String serviceUuid, ReadableArray characteristicUuids){
         WritableArray requestedCharacteristics = Arguments.createArray();
-        List<BluetoothGattCharacteristic> filteredCharacteristics = new ArrayList<BluetoothGattCharacteristic>(); 
+        List<BluetoothGattCharacteristic> filteredCharacteristics = new ArrayList<BluetoothGattCharacteristic>();
 
         for(BluetoothGattService service : this.discoveredServices){
             String uuid = service.getUuid().toString();
             //filter requested service
-            if(uuid != null && uuid.equalsIgnoreCase(serviceUuid)){      
+            if(uuid != null && uuid.equalsIgnoreCase(serviceUuid)){
                 List<BluetoothGattCharacteristic> characteristics = service.getCharacteristics();
 
-                //remove characteristics from the characteristics list based on requested characteristicUuids          
+                //remove characteristics from the characteristics list based on requested characteristicUuids
                 if(characteristicUuids != null && characteristicUuids.size() > 0){
-                    for(int i = 0; i <  characteristicUuids.size(); i++){                        
+                    for(int i = 0; i <  characteristicUuids.size(); i++){
                         Iterator<BluetoothGattCharacteristic> iterator = characteristics.iterator();
                         while(iterator.hasNext()){
                             BluetoothGattCharacteristic characteristic = iterator.next();
                             if(characteristicUuids.getString(i).equalsIgnoreCase(characteristic.getUuid().toString())){
                                 filteredCharacteristics.add(characteristic);
-                                break;                                
+                                break;
                             }
                         }
-                    }                    
+                    }
                 }
 
-                //process characteristics 
+                //process characteristics
                 for(BluetoothGattCharacteristic c : filteredCharacteristics){
                     WritableArray properties = Arguments.createArray();
                     int propertyBitmask = c.getProperties();
@@ -301,7 +302,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
                     if((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0){
                        properties.pushString("notify");
-                    }                                                
+                    }
 
                     if((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0){
                         properties.pushString("indicaste");
@@ -321,7 +322,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
                     requestedCharacteristics.pushMap(characteristicObject);
                 }
-            break;    
+            break;
             }
         }
 
@@ -339,7 +340,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         for(BluetoothGattService service : this.discoveredServices){
             String uuid = service.getUuid().toString();
             //filter requested service
-            if(uuid != null && uuid.equalsIgnoreCase(serviceUuid)){      
+            if(uuid != null && uuid.equalsIgnoreCase(serviceUuid)){
                 List<BluetoothGattCharacteristic> characteristics = service.getCharacteristics();
                 for(BluetoothGattCharacteristic characteristic : characteristics){
                     String cUuid = characteristic.getUuid().toString();
@@ -376,11 +377,11 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                     if(cUuid != null && cUuid.equalsIgnoreCase(characteristicUuid)){
                         if(bluetoothGatt != null) {
                             bluetoothGatt.readCharacteristic(characteristic);
-                        }        
+                        }
                         break;
                     }
                 }
-                break;  
+                break;
             }
         }
     }
@@ -395,14 +396,14 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 //find requested characteristic
                 for(BluetoothGattCharacteristic characteristic : characteristics){
                     String cUuid = characteristic.getUuid().toString();
-                    if(cUuid != null && cUuid.equalsIgnoreCase(characteristicUuid)){                     
+                    if(cUuid != null && cUuid.equalsIgnoreCase(characteristicUuid)){
                         if(bluetoothGatt != null) {
                             Log.d(TAG, "Writing data to BLE characteristic");
                             //set new data to characteristic
                             if(withoutResponse){
                                 characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE);
                             } else {
-                                characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT); // TODO: not tested                                
+                                characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT); // TODO: not tested
                             }
                             byte[] bArr = Base64.decode(data, Base64.DEFAULT);
                             Log.d(TAG, "bArr: " + Arrays.toString(bArr) + "\n" + " bArr length: " + bArr.length);
@@ -417,7 +418,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 }
             break;
             }
-        }       
+        }
     }
 
     @Override
@@ -460,7 +461,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
     private List<ScanFilter> buildScanFilters() {
         List<ScanFilter> scanFilters = new ArrayList<>();
 
-        ScanFilter.Builder builder = new ScanFilter.Builder();        
+        ScanFilter.Builder builder = new ScanFilter.Builder();
         if(serviceUuid != null){
             //builder.setDeviceAddress(serviceUuid);
             builder.setServiceUuid(ParcelUuid.fromString(serviceUuid));
@@ -474,7 +475,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         ScanSettings.Builder builder = new ScanSettings.Builder();
         builder.setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY);
         return builder.build();
-    }    
+    }
 
     private String stateToString(int state){
         switch (state) {
@@ -495,7 +496,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
     // GATT callback and methods
     private class RnbleGattCallback extends BluetoothGattCallback {
         private RNBLEModule rnbleModule;
- 
+
         public RnbleGattCallback(RNBLEModule rnbleModule) {
             this.rnbleModule = rnbleModule;
         }
@@ -531,7 +532,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
             } else {
                 Log.w(TAG, "onServicesDiscovered received: " + status);
             }
-  
+
             connectionState = STATE_CONNECTED;
 
             BluetoothDevice remoteDevice = gatt.getDevice();
@@ -545,7 +546,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         @Override
         public void onCharacteristicRead (BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status){
             byte[] characteristicValue = null;
-            Boolean notification = false;            
+            Boolean notification = false;
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 Log.w(TAG, "!!! characteristic read!!!");
                 characteristicValue = characteristic.getValue();
@@ -587,7 +588,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 Log.d(TAG, "onServicesDiscovered received: " + status);
             }
         }
-    };    
+    };
 
 
      private String toNobleUuid(String uuid) {
@@ -614,10 +615,12 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
         @Override
         public void onScanResult(int callbackType, ScanResult result) {
+
             boolean isDuplicate = false;
 
+
             //filter out duplicate entries if requested
-            if(!rnbleModule.allowDuplicates){                
+            if(!rnbleModule.allowDuplicates){
                 for(String s : scannedDeviceAddresses){
                     BluetoothDevice device = result.getDevice();
                     String address = device.getAddress();
@@ -629,10 +632,22 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 }
             }
 
-            if(!isDuplicate){  
+            if(!isDuplicate){
                 scannedDeviceAddresses.add(result.getDevice().getAddress());
                 super.onScanResult(callbackType, result);
-                processScanResult(result);
+
+                //filter based on service UUID here, since ScanFilter class' service UUID filtering did not work in "Samsun Galaxy Tab S"
+                ScanRecord record = result.getScanRecord();
+                if(record != null){
+                  List<ParcelUuid> serviceUuids = record.getServiceUuids();
+                  if(serviceUuids != null){
+                    for(ParcelUuid p : serviceUuids){
+                      if(serviceUuid != null && p.toString().toUpperCase().equals(serviceUuid.toUpperCase())){
+                        processScanResult(result);
+                      }
+                    }
+                  }
+                }
             }
         }
 
@@ -661,7 +676,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                         serviceUuids.pushString(toNobleUuid(uuid.toString()));
                     }
                 }
-    
+
                 advertisement.putArray("serviceUuids", serviceUuids);
 
                 //add serviceData array to advetisement map
@@ -719,5 +734,5 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 rnbleModule.sendEvent("ble.discover", params);
             }
         }
-    } 
+    }
 }
