@@ -398,7 +398,6 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                     String cUuid = characteristic.getUuid().toString();
                     if(cUuid != null && cUuid.equalsIgnoreCase(characteristicUuid)){
                         if(bluetoothGatt != null) {
-                            Log.d(TAG, "Writing data to BLE characteristic");
                             //set new data to characteristic
                             if(withoutResponse){
                                 characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE);
@@ -406,7 +405,15 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                                 characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT); // TODO: not tested
                             }
                             byte[] bArr = Base64.decode(data, Base64.DEFAULT);
-                            Log.d(TAG, "bArr: " + Arrays.toString(bArr) + "\n" + " bArr length: " + bArr.length);
+                            //Log.d(TAG, "bArr: " + Arrays.toString(bArr) + "\n" + " bArr length: " + bArr.lengthig
+
+                            //log out as binary
+                            //String binaryString = "";
+                            //for (byte b : bArr) {
+                            //    binaryString += Integer.toBinaryString(b & 255 | 256).substring(1) + " ";
+                            //}
+                            //Log.d(TAG, binaryString);
+
                             characteristic.setValue(bArr);
                             //write the data to the characterustic
                             if(!bluetoothGatt.writeCharacteristic(characteristic)){
@@ -548,7 +555,6 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
             byte[] characteristicValue = null;
             Boolean notification = false;
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                Log.w(TAG, "!!! characteristic read!!!");
                 characteristicValue = characteristic.getValue();
             } else {
                 Log.w(TAG, "onCharacteristicRead received: " + status);
