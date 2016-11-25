@@ -132,19 +132,29 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 scannedDeviceAddresses.clear();
                 this.serviceUuid = serviceUuid;
                 scanCallback = new RnbleScanCallback(this);
-                bluetoothLeScanner.startScan(null, buildScanSettings(), scanCallback);
+                try {
+                    bluetoothLeScanner.startScan(null, buildScanSettings(), scanCallback);
+                } catch (Exception ex) {
+                    scanCallback.onScanFailed(ScanCallback.SCAN_FAILED_INTERNAL_ERROR);
+                    getState();
+                    Log.d(TAG, ex.getMessage());
+                }
             }
         }
 
         if(bluetoothLeScanner == null || scanCallback == null) {
-             Log.d(TAG, "RNBLE startScanning - FAIlED to start scan");
-        }
-    }
+           Log.d(TAG, "RNBLE startScanning - FAIlED to start scan");
+       }
+   }
 
     @ReactMethod
     public void stopScanning() {
         if(bluetoothLeScanner != null && scanCallback != null){
-            bluetoothLeScanner.stopScan(scanCallback);
+            try {
+                bluetoothLeScanner.stopScan(scanCallback);
+            } catch (Exception ex) {
+                Log.d(TAG, ex.getMessage());
+            }
             scanCallback = null;
         }
     }
