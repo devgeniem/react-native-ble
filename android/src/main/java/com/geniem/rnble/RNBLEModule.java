@@ -138,23 +138,23 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                     scanCallback.onScanFailed(ScanCallback.SCAN_FAILED_INTERNAL_ERROR);
                     getState();
                     Log.d(TAG, ex.getMessage());
-                }
-            }
+                }            
         }
+    }
 
         if(bluetoothLeScanner == null || scanCallback == null) {
-           Log.d(TAG, "RNBLE startScanning - FAIlED to start scan");
-       }
-   }
+             Log.d(TAG, "RNBLE startScanning - FAIlED to start scan");
+        }
+    }
 
     @ReactMethod
     public void stopScanning() {
         if(bluetoothLeScanner != null && scanCallback != null){
-            try {
+        try {
                 bluetoothLeScanner.stopScan(scanCallback);
             } catch (Exception ex) {
                 Log.d(TAG, ex.getMessage());
-            }
+            }            
             scanCallback = null;
         }
     }
@@ -475,18 +475,18 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
             .emit(eventName, params);
     }
 
-    private List<ScanFilter> buildScanFilters() {
-        List<ScanFilter> scanFilters = new ArrayList<>();
+    // private List<ScanFilter> buildScanFilters() {
+    //     List<ScanFilter> scanFilters = new ArrayList<>();
 
-        ScanFilter.Builder builder = new ScanFilter.Builder();
-        if(serviceUuid != null){
-            //builder.setDeviceAddress(serviceUuid);
-            builder.setServiceUuid(ParcelUuid.fromString(serviceUuid));
-        }
-        scanFilters.add(builder.build());
+    //     ScanFilter.Builder builder = new ScanFilter.Builder();
+    //     if(serviceUuid != null){
+    //         //builder.setDeviceAddress(serviceUuid);
+    //         builder.setServiceUuid(ParcelUuid.fromString(serviceUuid));
+    //     }
+    //     scanFilters.add(builder.build());
 
-        return scanFilters;
-    }
+    //     return scanFilters;
+    // }
 
     private ScanSettings buildScanSettings() {
         ScanSettings.Builder builder = new ScanSettings.Builder();
@@ -647,21 +647,23 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                     }
                 }
             }
-
             if(!isDuplicate){
                 scannedDeviceAddresses.add(result.getDevice().getAddress());
-                super.onScanResult(callbackType, result);
-
+                // super.onScanResult(callbackType, result);
                 //filter based on service UUID here, since ScanFilter class' service UUID filtering did not work in "Samsun Galaxy Tab S"
                 ScanRecord record = result.getScanRecord();
-                if(record != null){
+                if(record != null) {
                   List<ParcelUuid> serviceUuids = record.getServiceUuids();
-                  if(serviceUuids != null){
+                  
+                  if (serviceUuids != null) {
                     for(ParcelUuid p : serviceUuids){
                       if(serviceUuid != null && p.toString().toUpperCase().equals(serviceUuid.toUpperCase())){
                         processScanResult(result);
                       }
                     }
+                  }
+                  else if ( serviceUuid == null || serviceUuid.isEmpty() ) {
+                      processScanResult(result);
                   }
                 }
             }
@@ -674,7 +676,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         }
 
         private void processScanResult(ScanResult scanResult) {
-
+            
             if(scanResult == null) {return;}
 
             ScanRecord record = scanResult.getScanRecord();
@@ -746,7 +748,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 int flags = record.getAdvertiseFlags();
                 params.putBoolean("connectable", (flags & 2) == 2); //TODO: double check this to ensure it is correct
 
-                Log.d(TAG, params.toString());
+                Log.d(TAG, "--- sending event with:" + params.toString());
                 rnbleModule.sendEvent("ble.discover", params);
             }
         }
