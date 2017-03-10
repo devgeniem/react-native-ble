@@ -1,9 +1,9 @@
 #import "RNBLE.h"
-#import "RCTEventDispatcher.h"
-#import "RCTLog.h"
-#import "RCTConvert.h"
 #import "RCTCONVERT+CBUUID.h"
-#import "RCTUtils.h"
+#import <React/RCTEventDispatcher.h>
+#import <React/RCTLog.h>
+#import <React/RCTConvert.h>
+#import <React/RCTUtils.h>
 
 @interface RNBLE () <CBCentralManagerDelegate, CBPeripheralDelegate> {
   CBCentralManager *centralManager;
@@ -18,18 +18,41 @@ RCT_EXPORT_MODULE()
 
 @synthesize bridge = _bridge;
 
++ (RNBLE *)sharedManager
+{
+  static RNBLE *sharedManager;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    sharedManager = [[self alloc] init];
+  });
+
+  [sharedManager dropAllConnections];
+
+  return sharedManager;
+}
+
 #pragma mark Initialization
+
++ (RNBLE *)new {
+  return [RNBLE sharedManager];
+}
 
 - (instancetype)init
 {
   if (self = [super init]) {
     centralEventQueue = dispatch_queue_create("com.openble.mycentral", DISPATCH_QUEUE_SERIAL);
     dispatch_set_target_queue(centralEventQueue, dispatch_get_main_queue());
-    centralManager = [[CBCentralManager alloc] initWithDelegate:self queue:centralEventQueue options:@{ CBCentralManagerOptionRestoreIdentifierKey:@"myCentralManagerIdentifier" }];
+    centralManager = [[CBCentralManager alloc] initWithDelegate:self queue:centralEventQueue options:@{ CBCentralManagerOptionRestoreIdentifierKey:@"myCentralManagerIdentifier", CBCentralManagerOptionShowPowerAlertKey: @NO }];
 
     peripherals = [NSMutableDictionary new];
   }
   return self;
+}
+
+- (void) dropAllConnections {
+  for (CBPeripheral *peripheral in [peripherals objectEnumerator]) {
+    [centralManager cancelPeripheralConnection:peripheral];
+  }
 }
 
 RCT_EXPORT_METHOD(startScanning:(CBUUIDArray *)uuids allowDuplicates:(BOOL)allowDuplicates)
@@ -539,15 +562,15 @@ RCT_EXPORT_METHOD(notify:(NSString *)peripheralUuid serviceUuid:(NSString *)serv
 - (NSDictionary *)dictionaryForAdvertisementData:(NSDictionary *)advertisementData fromPeripheral:(CBPeripheral *)peripheral
 {
   NSMutableDictionary *advertisement = [NSMutableDictionary new];
-  
+
   if (advertisementData[CBAdvertisementDataLocalNameKey] != nil) {
     advertisement[@"localName"] = advertisementData[CBAdvertisementDataLocalNameKey];
   }
-  
+
   if (advertisementData[CBAdvertisementDataManufacturerDataKey] != nil) {
     advertisement[@"manufacturerData"] = [advertisementData[CBAdvertisementDataManufacturerDataKey] base64EncodedStringWithOptions:0];
   }
-  
+
   if (advertisementData[CBAdvertisementDataServiceDataKey] != nil) {
     advertisement[@"serviceData"] = [NSMutableArray new];
     for (CBUUID *uuid in advertisementData[CBAdvertisementDataServiceDataKey]) {
@@ -557,32 +580,32 @@ RCT_EXPORT_METHOD(notify:(NSString *)peripheralUuid serviceUuid:(NSString *)serv
                              }];
     }
   }
-  
+
   if (advertisementData[CBAdvertisementDataServiceUUIDsKey] != nil) {
     advertisement[@"serviceUuids"] = [NSMutableArray new];
     for (CBUUID *uuid in advertisementData[CBAdvertisementDataServiceUUIDsKey]) {
       [advertisement[@"serviceUuids"] addObject:[self toNobleUuid:uuid.UUIDString]];
     }
   }
-  
+
   if (advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey] != nil) {
     advertisement[@"overflowServiceUuids"] = [NSMutableArray new];
     for (CBUUID *uuid in advertisementData[CBAdvertisementDataOverflowServiceUUIDsKey]) {
       [advertisement[@"overflowServiceUuids"] addObject:[self toNobleUuid:uuid.UUIDString]];
     }
   }
-  
+
   if (advertisementData[CBAdvertisementDataTxPowerLevelKey] != nil) {
     advertisement[@"txPowerLevel"] = advertisementData[CBAdvertisementDataTxPowerLevelKey];
   }
-  
+
   if (advertisementData[CBAdvertisementDataSolicitedServiceUUIDsKey] != nil) {
     advertisement[@"solicitedServiceUuids"] = [NSMutableArray new];
     for (CBUUID *uuid in advertisementData[CBAdvertisementDataSolicitedServiceUUIDsKey]) {
       [advertisement[@"solicitedServiceUuids"] addObject:[self toNobleUuid:uuid.UUIDString]];
     }
   }
-  
+
   return advertisement;
 }
 
@@ -600,7 +623,7 @@ RCT_EXPORT_METHOD(notify:(NSString *)peripheralUuid serviceUuid:(NSString *)serv
 - (NSString *)NSStringForCBCentralManagerState:(CBCentralManagerState)state
 {
   NSString *stateString = [NSString new];
-  
+
   switch (state) {
     case CBCentralManagerStateResetting:
       stateString = @"resetting";
