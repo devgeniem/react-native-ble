@@ -58,10 +58,13 @@ NobleBindings.prototype.onDescriptorsDiscover = function({ peripheralUuid, servi
 };
 
 
-NobleBindings.prototype.onData = function({ peripheralUuid, serviceUuid, characteristicUuid, data, isNotification }) {
-  let processedData = new Buffer(JSON.parse(data), 'base64');
-  this.emit('data', peripheralUuid, serviceUuid, characteristicUuid, processedData, isNotification);
-  this.emit('read', peripheralUuid, serviceUuid, characteristicUuid, processedData, isNotification);
+NobleBindings.prototype.onData = function ({ peripheralUuid, serviceUuid, characteristicUuid, data, isNotification }) {
+  console.log("NobleBindings.prototype.onData: ", data);
+  if (data !== null) {
+    let processedData = new Buffer(JSON.parse(data), 'base64');
+    this.emit('data', peripheralUuid, serviceUuid, characteristicUuid, processedData, isNotification);
+    this.emit('read', peripheralUuid, serviceUuid, characteristicUuid, processedData, isNotification);
+  }
 };
 
 NobleBindings.prototype.onStateChange = function(params) {
