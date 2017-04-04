@@ -276,7 +276,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 List<BluetoothGattCharacteristic> characteristics = service.getCharacteristics();
 
                 //remove characteristics from the characteristics list based on requested characteristicUuids
-                if(characteristicUuids != null && characteristicUuids.size() > 0){
+                if (characteristicUuids != null && characteristicUuids.size() > 0) {
                     for(int i = 0; i <  characteristicUuids.size(); i++){
                         Iterator<BluetoothGattCharacteristic> iterator = characteristics.iterator();
                         while(iterator.hasNext()){
@@ -286,6 +286,14 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                                 break;
                             }
                         }
+                    }
+                }
+                // if no filter uuids given, just pass all
+                else {
+                    Iterator<BluetoothGattCharacteristic> iterator = characteristics.iterator();
+                    while( iterator.hasNext() ) {
+                        BluetoothGattCharacteristic characteristic = iterator.next();
+                        filteredCharacteristics.add(characteristic);
                     }
                 }
 
@@ -376,6 +384,13 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
     @ReactMethod
     public void read(String peripheralUuid, String serviceUuid, String characteristicUuid){
+        try {
+                Log.d(TAG, String.format("reading characteristic, p: %s s: %s c: %s", peripheralUuid, serviceUuid, characteristicUuid));
+            }
+            catch(NullPointerException e ) {
+                Log.d(TAG, "reading characteristic, NullPointerException");
+        }
+        Boolean dataRead = false;
         for(BluetoothGattService service : this.discoveredServices){
             String uuid = service.getUuid().toString();
             //find requested service
@@ -387,6 +402,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                     if(cUuid != null && cUuid.equalsIgnoreCase(characteristicUuid)){
                         if(bluetoothGatt != null) {
                             bluetoothGatt.readCharacteristic(characteristic);
+                            dataRead = true;
                         }
                         break;
                     }
@@ -394,6 +410,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 break;
             }
         }
+        if ( !dataRead ) Log.e(TAG, "no data read");
     }
 
     @ReactMethod
@@ -562,6 +579,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
         @Override
         public void onCharacteristicRead (BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status){
+            Log.d(TAG, "characteristic onRead");
             byte[] characteristicValue = null;
             Boolean notification = false;
             if (status == BluetoothGatt.GATT_SUCCESS) {
