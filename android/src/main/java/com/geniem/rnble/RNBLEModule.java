@@ -79,6 +79,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
     private static final int TIMEOUT_MS = 500;
 
     // enable disconnect on pause
+    // TODO: make this configurable on the javascript side
     private static final boolean DISCONNECT_ON_PAUSE = true;
 
     private Context context;
