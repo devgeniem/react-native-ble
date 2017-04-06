@@ -31,7 +31,7 @@ import android.content.Context;
 import android.os.Handler;
 import android.util.Log;
 
-import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.BlockingQueue;  
 
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
@@ -108,10 +108,13 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         super(reactContext);
         this.context = reactContext;
         reactContext.addLifecycleEventListener(this);
-    }
+    } 
 
     private ReadWriteOperation currentOperation;
 
+    /** 
+     * Start read / write thread for sending characteristic operations
+    */
     private void startReadWriteThread() {
         if (readWriteThread != null && readWriteThread.isAlive())
             return;
@@ -140,6 +143,12 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         readWriteThread.start();
     }
 
+    /**
+     * Block read/write thread until we receive go-ahead 
+     * by receiving the callback from either onCharacteristicRead or onCharacteristicWrite.
+     * 
+     * This is a polling operation that happens every SLEEP_MS milliseconds on the r/w thread
+     */
     private void blockUntilResponseReceived() throws InterruptedException, NullPointerException {
         while (!responseReceived) {
             int timeoutCounter = currentOperation.incrementTimeout();
@@ -153,6 +162,9 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
     private boolean responseReceived = false;
 
+    /**
+     * Stop read/write thread 
+     */
     private void stopReadWriteThread() {
         try {
             readWriteThread.interrupt();
