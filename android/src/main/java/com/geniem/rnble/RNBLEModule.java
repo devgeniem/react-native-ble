@@ -72,6 +72,15 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
     private static final String TAG = "RNBLEModule";
 
+    // used for serializing r/w characteristic operations, poll time for looking at r/w responses
+    private static final int SLEEP_MS = 50;
+
+    // timeout for receiving r/w operation callbacks
+    private static final int TIMEOUT_MS = 500;
+
+    // enable disconnect on pause
+    private static final boolean DISCONNECT_ON_PAUSE = false;
+
     private Context context;
 
     private Thread readWriteThread;
@@ -137,8 +146,6 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
 
     private void blockUntilResponseReceived() throws InterruptedException, NullPointerException {
-        final int SLEEP_MS = 50;
-        final int TIMEOUT_MS = 1000;
         while ( !responseReceived ) {
             int timeoutCounter = currentOperation.incrementTimeout();
             if ( timeoutCounter * SLEEP_MS > TIMEOUT_MS ) {
@@ -565,22 +572,28 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
     @Override
     public void onHostPause() {
         Log.v(TAG, "onHostPause");
-        stopReadWriteThread();
+        // stopReadWriteThread();
         if (bluetoothLeScanner != null && scanCallback != null) {
             bluetoothLeScanner.stopScan(scanCallback);
             scanCallback = null;
         }
-        if (bluetoothGatt != null) {
-            bluetoothGatt.disconnect();
-            bluetoothGatt.close();
-            bluetoothGatt = null;
-            connectionState = STATE_DISCONNECTED;
-        }
+        // if (bluetoothGatt != null) {
+        //     bluetoothGatt.disconnect();
+        //     bluetoothGatt.close();
+        //     bluetoothGatt = null;
+        //     connectionState = STATE_DISCONNECTED;
+        // }
     }
 
     @Override
     public void onHostDestroy() {
         Log.v(TAG, "onHostDestroy");
+        if (bluetoothLeScanner != null && scanCallback != null) {
+            bluetoothLeScanner.stopScan(scanCallback);
+            scanCallback = null;
+        }
+
+
         if (bluetoothGatt != null) {
             bluetoothGatt.disconnect();
             bluetoothGatt.close();
