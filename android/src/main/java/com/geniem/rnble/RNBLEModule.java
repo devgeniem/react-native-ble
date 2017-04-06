@@ -548,6 +548,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
     private void queueReadWriteOperation(ReadWriteOperation operation) {
         try {
+            startReadWriteThread();
             readWriteOperationQueue.add(operation);
         }
         catch ( NullPointerException e ) {
