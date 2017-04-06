@@ -112,10 +112,9 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
     private ReadWriteOperation currentOperation;
 
-
-
     private void startReadWriteThread() {
-        if ( readWriteThread != null && readWriteThread.isAlive() ) return;
+        if (readWriteThread != null && readWriteThread.isAlive())
+            return;
         readWriteOperationQueue = new java.util.concurrent.LinkedBlockingQueue<>();
         readWriteThread = new Thread(new Runnable() {
             @Override
@@ -126,48 +125,42 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                         responseReceived = false;
                         currentOperation.handle(bluetoothGatt);
                         blockUntilResponseReceived();
-                    }
-                    catch ( InterruptedException e ) {
+                    } catch (InterruptedException e) {
                         // quit running thread on interrupt
                         Log.d(TAG, "rw-thread interrupted");
                         return;
-                    }
-                    catch ( NullPointerException e ) {
+                    } catch (NullPointerException e) {
                         // in case currentOperation is null for some reason
                         // this shouldnt happen
                         throw new RuntimeException("Nullpointer exception in startReadWriteThread, RNBLEModule");
                     }
-                } 
+                }
             }
         });
         readWriteThread.start();
     }
 
-
-
     private void blockUntilResponseReceived() throws InterruptedException, NullPointerException {
-        while ( !responseReceived ) {
+        while (!responseReceived) {
             int timeoutCounter = currentOperation.incrementTimeout();
-            if ( timeoutCounter * SLEEP_MS > TIMEOUT_MS ) {
+            if (timeoutCounter * SLEEP_MS > TIMEOUT_MS) {
                 return;
             }
             Thread.sleep(SLEEP_MS);
         }
         Log.d(TAG, "response received");
     }
+
     private boolean responseReceived = false;
 
     private void stopReadWriteThread() {
         try {
             readWriteThread.interrupt();
             readWriteThread = null;
-        }
-        catch( NullPointerException  e ) {
+        } catch (NullPointerException e) {
             Log.d(TAG, "no rw-thread to stop");
         }
     }
-
-
 
     @Override
     public void initialize() {
@@ -178,7 +171,6 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
             bluetoothLeScanner = bluetoothAdapter.getBluetoothLeScanner();
         }
 
-        
     }
 
     /**
@@ -444,7 +436,6 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         Log.d(TAG, "discover descriptors");
         WritableArray descriptors = Arguments.createArray();
 
-
         for (BluetoothGattService service : this.discoveredServices) {
             String uuid = service.getUuid().toString();
             //filter requested service
@@ -557,8 +548,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         try {
             startReadWriteThread();
             readWriteOperationQueue.add(operation);
-        }
-        catch ( NullPointerException e ) {
+        } catch (NullPointerException e) {
             throw new RuntimeException(TAG + " rw - queue is null");
         }
     }
@@ -577,7 +567,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
             bluetoothLeScanner.stopScan(scanCallback);
             scanCallback = null;
         }
-        if ( DISCONNECT_ON_PAUSE && bluetoothGatt != null  ) {
+        if (DISCONNECT_ON_PAUSE && bluetoothGatt != null) {
             bluetoothGatt.disconnect();
             bluetoothGatt.close();
             bluetoothGatt = null;
@@ -592,7 +582,6 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
             bluetoothLeScanner.stopScan(scanCallback);
             scanCallback = null;
         }
-
 
         if (bluetoothGatt != null) {
             bluetoothGatt.disconnect();
@@ -628,17 +617,17 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
     private String stateToString(int state) {
         switch (state) {
-        case BluetoothAdapter.STATE_OFF:
-            return "poweredOff";
-        case BluetoothAdapter.STATE_TURNING_OFF:
-            return "turningOff";
-        case BluetoothAdapter.STATE_ON:
-            return "poweredOn";
-        case BluetoothAdapter.STATE_TURNING_ON:
-            return "turningOn";
-        default:
-            return "unknown";
-        }
+            case BluetoothAdapter.STATE_OFF:
+                return "poweredOff";
+            case BluetoothAdapter.STATE_TURNING_OFF:
+                return "turningOff";
+            case BluetoothAdapter.STATE_ON:
+                return "poweredOn";
+            case BluetoothAdapter.STATE_TURNING_ON:
+                return "turningOn";
+            default:
+                return "unknown";
+            }
     }
 
     // GATT callback and methods
