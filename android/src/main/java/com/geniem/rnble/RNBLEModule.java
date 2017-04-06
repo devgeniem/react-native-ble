@@ -577,12 +577,12 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
             bluetoothLeScanner.stopScan(scanCallback);
             scanCallback = null;
         }
-        // if (bluetoothGatt != null) {
-        //     bluetoothGatt.disconnect();
-        //     bluetoothGatt.close();
-        //     bluetoothGatt = null;
-        //     connectionState = STATE_DISCONNECTED;
-        // }
+        if ( DISCONNECT_ON_PAUSE && bluetoothGatt != null  ) {
+            bluetoothGatt.disconnect();
+            bluetoothGatt.close();
+            bluetoothGatt = null;
+            connectionState = STATE_DISCONNECTED;
+        }
     }
 
     @Override
