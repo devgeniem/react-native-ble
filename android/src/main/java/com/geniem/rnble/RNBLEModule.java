@@ -31,6 +31,8 @@ import android.content.Context;
 import android.os.Handler;
 import android.util.Log;
 
+import java.util.concurrent.BlockingQueue;  
+
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
@@ -56,6 +58,7 @@ import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.ReadableArray;
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.modules.core.DeviceEventManagerModule;
+import com.geniem.rnble.ReadWriteOperation.Type;
 import com.facebook.react.bridge.LifecycleEventListener;
 
 import android.os.ParcelUuid;
@@ -66,9 +69,25 @@ import java.util.Iterator;
 import android.util.Base64;
 
 class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventListener {
+
     private static final String TAG = "RNBLEModule";
 
+    // used for serializing r/w characteristic operations, poll time for looking at r/w responses
+    private static final int SLEEP_MS = 50;
+
+    // timeout for receiving r/w operation callbacks
+    private static final int TIMEOUT_MS = 500;
+
+    // enable disconnect on pause
+    // TODO: make this configurable on the javascript side
+    private static final boolean DISCONNECT_ON_PAUSE = true;
+
     private Context context;
+
+    private Thread readWriteThread;
+
+    private BlockingQueue<ReadWriteOperation> readWriteOperationQueue;
+
     private BluetoothAdapter bluetoothAdapter;
     private BluetoothManager bluetoothManager;
     private BluetoothLeScanner bluetoothLeScanner;
@@ -90,17 +109,81 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         super(reactContext);
         this.context = reactContext;
         reactContext.addLifecycleEventListener(this);
+    } 
+
+    private ReadWriteOperation currentOperation;
+
+    /** 
+     * Start read / write thread for sending characteristic operations
+    */
+    private void startReadWriteThread() {
+        if (readWriteThread != null && readWriteThread.isAlive())
+            return;
+        readWriteOperationQueue = new java.util.concurrent.LinkedBlockingQueue<>();
+        readWriteThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (true) {
+                    try {
+                        currentOperation = readWriteOperationQueue.take();
+                        responseReceived = false;
+                        currentOperation.handle(bluetoothGatt);
+                        blockUntilResponseReceived();
+                    } catch (InterruptedException e) {
+                        // quit running thread on interrupt
+                        Log.d(TAG, "rw-thread interrupted");
+                        return;
+                    } catch (NullPointerException e) {
+                        // in case currentOperation is null for some reason
+                        // this shouldnt happen
+                        throw new RuntimeException("Nullpointer exception in startReadWriteThread, RNBLEModule");
+                    }
+                }
+            }
+        });
+        readWriteThread.start();
     }
 
+    /**
+     * Block read/write thread until we receive go-ahead 
+     * by receiving the callback from either onCharacteristicRead or onCharacteristicWrite.
+     * 
+     * This is a polling operation that happens every SLEEP_MS milliseconds on the r/w thread
+     */
+    private void blockUntilResponseReceived() throws InterruptedException, NullPointerException {
+        while (!responseReceived) {
+            int timeoutCounter = currentOperation.incrementTimeout();
+            if (timeoutCounter * SLEEP_MS > TIMEOUT_MS) {
+                return;
+            }
+            Thread.sleep(SLEEP_MS);
+        }
+        Log.d(TAG, "response received");
+    }
+
+    private boolean responseReceived = false;
+
+    /**
+     * Stop read/write thread 
+     */
+    private void stopReadWriteThread() {
+        try {
+            readWriteThread.interrupt();
+            readWriteThread = null;
+        } catch (NullPointerException e) {
+            Log.d(TAG, "no rw-thread to stop");
+        }
+    }
 
     @Override
     public void initialize() {
         super.initialize();
         bluetoothManager = (BluetoothManager) this.context.getSystemService(ReactApplicationContext.BLUETOOTH_SERVICE);
         bluetoothAdapter = bluetoothManager.getAdapter();
-        if(bluetoothAdapter != null){
+        if (bluetoothAdapter != null) {
             bluetoothLeScanner = bluetoothAdapter.getBluetoothLeScanner();
         }
+
     }
 
     /**
@@ -114,11 +197,12 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
     @ReactMethod
     public void getState() {
+        Log.d(TAG, "getState");
         WritableMap params = Arguments.createMap();
         if (bluetoothAdapter == null) {
             params.putString("state", "unsupported");
         } else {
-            params.putString("state",stateToString(bluetoothAdapter.getState()));
+            params.putString("state", stateToString(bluetoothAdapter.getState()));
         }
         sendEvent("ble.stateChange", params);
     }
@@ -126,7 +210,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
     @ReactMethod
     public void startScanning(String serviceUuid, Boolean allowDuplicates) {
         Log.d(TAG, "RNBLE startScanning - service uuid: " + serviceUuid);
-        if(bluetoothLeScanner != null){
+        if (bluetoothLeScanner != null) {
             if (scanCallback == null) {
                 this.allowDuplicates = allowDuplicates;
                 scannedDeviceAddresses.clear();
@@ -142,14 +226,15 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
             }
         }
 
-        if(bluetoothLeScanner == null || scanCallback == null) {
-           Log.d(TAG, "RNBLE startScanning - FAIlED to start scan");
-       }
-   }
+        if (bluetoothLeScanner == null || scanCallback == null) {
+            Log.d(TAG, "RNBLE startScanning - FAIlED to start scan");
+        }
+    }
 
     @ReactMethod
     public void stopScanning() {
-        if(bluetoothLeScanner != null && scanCallback != null){
+        Log.d(TAG, "stopScanning");
+        if (bluetoothLeScanner != null && scanCallback != null) {
             try {
                 bluetoothLeScanner.stopScan(scanCallback);
             } catch (Exception ex) {
@@ -161,8 +246,10 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
     @ReactMethod
     public void disconnect(final String peripheralUuid) {
+        Log.d(TAG, "disconnect");
         WritableMap params = Arguments.createMap();
         params.putString("peripheralUuid", peripheralUuid);
+        stopReadWriteThread();
 
         if (bluetoothGatt == null) {
             Log.w(TAG, "BluetoothGAtt not initialized");
@@ -199,7 +286,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         }
 
         // Previously connected device.  Try to reconnect.
-/*        if (bluetoothDeviceAddress != null && peripheralUuid.equalsIgnoreCase(bluetoothDeviceAddress)
+        /*        if (bluetoothDeviceAddress != null && peripheralUuid.equalsIgnoreCase(bluetoothDeviceAddress)
                 && bluetoothGatt != null) {
             Log.d(TAG, "Trying to use an existing bluetoothGatt for connection.");
             if (bluetoothGatt.connect()) {
@@ -207,7 +294,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 return;
             }
         }
-*/
+        */
         final BluetoothDevice device = bluetoothAdapter.getRemoteDevice(peripheralUuid);
         if (device == null) {
             Log.w(TAG, "Device not found.  Unable to connect.");
@@ -227,7 +314,9 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
         // We want to directly connect to the device, so we are setting the autoConnect
         // parameter to false.
-        if(bluetoothGatt != null) {bluetoothGatt.close();}
+        if (bluetoothGatt != null) {
+            bluetoothGatt.close();
+        }
         bluetoothGatt = device.connectGatt(context, false, gattCallback);
         Log.d(TAG, "Trying to create a new connection.");
         bluetoothDeviceAddress = peripheralUuid;
@@ -235,23 +324,23 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
     }
 
     @ReactMethod
-    public void discoverServices(final String peripheralUuid, ReadableArray uuids){
+    public void discoverServices(final String peripheralUuid, ReadableArray uuids) {
         Log.d(TAG, "discoverServices");
         WritableArray filteredServiceUuids = Arguments.createArray();
 
-        if(bluetoothGatt != null && this.discoveredServices != null && uuids != null && uuids.size() > 0){
+        if (bluetoothGatt != null && this.discoveredServices != null && uuids != null && uuids.size() > 0) {
             //filter discovered services
-            for(BluetoothGattService service : this.discoveredServices){
+            for (BluetoothGattService service : this.discoveredServices) {
                 String uuid = service.getUuid().toString();
-                for(int i = 0; i < uuids.size(); i++){
-                    if(uuid.equalsIgnoreCase(uuids.getString(i))){
+                for (int i = 0; i < uuids.size(); i++) {
+                    if (uuid.equalsIgnoreCase(uuids.getString(i))) {
                         filteredServiceUuids.pushString(toNobleUuid(uuid));
                     }
                 }
             }
-        } else if(uuids == null || uuids.size() == 0){
+        } else if (uuids == null || uuids.size() == 0) {
             //if no uuids are requested return all discovered service uuids
-            for(BluetoothGattService service : this.discoveredServices){
+            for (BluetoothGattService service : this.discoveredServices) {
                 String uuid = service.getUuid().toString();
                 filteredServiceUuids.pushString(toNobleUuid(uuid));
             }
@@ -265,64 +354,75 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
     }
 
     @ReactMethod
-    public void discoverCharacteristics(final String peripheralUuid, final String serviceUuid, ReadableArray characteristicUuids){
+    public void discoverCharacteristics(final String peripheralUuid, final String serviceUuid,
+            ReadableArray characteristicUuids) {
+        Log.d(TAG, "discoverCharacteristics");
         WritableArray requestedCharacteristics = Arguments.createArray();
         List<BluetoothGattCharacteristic> filteredCharacteristics = new ArrayList<BluetoothGattCharacteristic>();
 
-        for(BluetoothGattService service : this.discoveredServices){
+        for (BluetoothGattService service : this.discoveredServices) {
             String uuid = service.getUuid().toString();
             //filter requested service
-            if(uuid != null && uuid.equalsIgnoreCase(serviceUuid)){
+            if (uuid != null && uuid.equalsIgnoreCase(serviceUuid)) {
                 List<BluetoothGattCharacteristic> characteristics = service.getCharacteristics();
 
                 //remove characteristics from the characteristics list based on requested characteristicUuids
-                if(characteristicUuids != null && characteristicUuids.size() > 0){
-                    for(int i = 0; i <  characteristicUuids.size(); i++){
+                if (characteristicUuids != null && characteristicUuids.size() > 0) {
+                    for (int i = 0; i < characteristicUuids.size(); i++) {
                         Iterator<BluetoothGattCharacteristic> iterator = characteristics.iterator();
-                        while(iterator.hasNext()){
+                        while (iterator.hasNext()) {
                             BluetoothGattCharacteristic characteristic = iterator.next();
-                            if(characteristicUuids.getString(i).equalsIgnoreCase(characteristic.getUuid().toString())){
+                            if (characteristicUuids.getString(i)
+                                    .equalsIgnoreCase(characteristic.getUuid().toString())) {
                                 filteredCharacteristics.add(characteristic);
                                 break;
                             }
                         }
                     }
                 }
+                // if no filter uuids given, just pass all
+                else {
+                    Iterator<BluetoothGattCharacteristic> iterator = characteristics.iterator();
+                    while (iterator.hasNext()) {
+                        BluetoothGattCharacteristic characteristic = iterator.next();
+                        filteredCharacteristics.add(characteristic);
+                    }
+                }
 
                 //process characteristics
-                for(BluetoothGattCharacteristic c : filteredCharacteristics){
+                for (BluetoothGattCharacteristic c : filteredCharacteristics) {
                     WritableArray properties = Arguments.createArray();
                     int propertyBitmask = c.getProperties();
 
-                    if((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_BROADCAST) != 0){
+                    if ((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_BROADCAST) != 0) {
                         properties.pushString("boradcast");
                     }
 
-                    if((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_READ) != 0){
+                    if ((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_READ) != 0) {
                         properties.pushString("read");
                     }
 
-                    if((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0){
+                    if ((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE) != 0) {
                         properties.pushString("writeWithoutResponse");
                     }
 
-                    if((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0){
+                    if ((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_WRITE) != 0) {
                         properties.pushString("write");
                     }
 
-                    if((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0){
-                       properties.pushString("notify");
+                    if ((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0) {
+                        properties.pushString("notify");
                     }
 
-                    if((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0){
+                    if ((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0) {
                         properties.pushString("indicaste");
                     }
 
-                    if((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_SIGNED_WRITE) != 0){
+                    if ((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_SIGNED_WRITE) != 0) {
                         properties.pushString("authenticatedSignedWrites");
                     }
 
-                    if((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_EXTENDED_PROPS) != 0){
+                    if ((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_EXTENDED_PROPS) != 0) {
                         properties.pushString("extendedProperties");
                     }
 
@@ -332,7 +432,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
                     requestedCharacteristics.pushMap(characteristicObject);
                 }
-            break;
+                break;
             }
         }
 
@@ -344,25 +444,27 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
     }
 
     @ReactMethod
-    public void discoverDescriptors(final String peripheralUuid, final String serviceUuid, final String characteristicUuid){
+    public void discoverDescriptors(final String peripheralUuid, final String serviceUuid,
+            final String characteristicUuid) {
+        Log.d(TAG, "discover descriptors");
         WritableArray descriptors = Arguments.createArray();
 
-        for(BluetoothGattService service : this.discoveredServices){
+        for (BluetoothGattService service : this.discoveredServices) {
             String uuid = service.getUuid().toString();
             //filter requested service
-            if(uuid != null && uuid.equalsIgnoreCase(serviceUuid)){
+            if (uuid != null && uuid.equalsIgnoreCase(serviceUuid)) {
                 List<BluetoothGattCharacteristic> characteristics = service.getCharacteristics();
-                for(BluetoothGattCharacteristic characteristic : characteristics){
+                for (BluetoothGattCharacteristic characteristic : characteristics) {
                     String cUuid = characteristic.getUuid().toString();
-                    if(cUuid != null && cUuid.equalsIgnoreCase(characteristicUuid)){
+                    if (cUuid != null && cUuid.equalsIgnoreCase(characteristicUuid)) {
                         List<BluetoothGattDescriptor> descriptorList = characteristic.getDescriptors();
-                        for(BluetoothGattDescriptor descriptor : descriptorList){
+                        for (BluetoothGattDescriptor descriptor : descriptorList) {
                             descriptors.pushString(descriptor.getUuid().toString());
                         }
                         break;
                     }
                 }
-            break;
+                break;
             }
         }
 
@@ -375,18 +477,28 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
     }
 
     @ReactMethod
-    public void read(String peripheralUuid, String serviceUuid, String characteristicUuid){
-        for(BluetoothGattService service : this.discoveredServices){
+    public void read(String peripheralUuid, String serviceUuid, String characteristicUuid) {
+        try {
+            Log.d(TAG, String.format("reading characteristic, p: %s s: %s c: %s", peripheralUuid, serviceUuid,
+                    characteristicUuid));
+        } catch (NullPointerException e) {
+            Log.d(TAG, "reading characteristic, NullPointerException");
+        }
+        Boolean dataRead = false;
+        for (BluetoothGattService service : this.discoveredServices) {
             String uuid = service.getUuid().toString();
             //find requested service
-            if(uuid != null && uuid.equalsIgnoreCase(serviceUuid)){
+            if (uuid != null && uuid.equalsIgnoreCase(serviceUuid)) {
                 List<BluetoothGattCharacteristic> characteristics = service.getCharacteristics();
                 //find requested characteristic
-                for(BluetoothGattCharacteristic characteristic : characteristics){
+                for (BluetoothGattCharacteristic characteristic : characteristics) {
                     String cUuid = characteristic.getUuid().toString();
-                    if(cUuid != null && cUuid.equalsIgnoreCase(characteristicUuid)){
-                        if(bluetoothGatt != null) {
-                            bluetoothGatt.readCharacteristic(characteristic);
+                    if (cUuid != null && cUuid.equalsIgnoreCase(characteristicUuid)) {
+                        if (bluetoothGatt != null) {
+                            ReadWriteOperation operation = new ReadWriteOperation(Type.READ, characteristic);
+                            queueReadWriteOperation(operation);
+                            // bluetoothGatt.readCharacteristic(characteristic);
+                            dataRead = true;
                         }
                         break;
                     }
@@ -394,22 +506,26 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 break;
             }
         }
+        if (!dataRead)
+            Log.e(TAG, "no characteristic found for read");
     }
 
     @ReactMethod
-    public void write(String deviceUuid,String serviceUuid,String characteristicUuid,String data, Boolean withoutResponse){
-        for(BluetoothGattService service : this.discoveredServices){
+    public void write(String deviceUuid, String serviceUuid, String characteristicUuid, String data,
+            Boolean withoutResponse) {
+        Log.d(TAG, "writing to characteristic");
+        for (BluetoothGattService service : this.discoveredServices) {
             String uuid = service.getUuid().toString();
             //find requested service
-            if(uuid != null && uuid.equalsIgnoreCase(serviceUuid)){
+            if (uuid != null && uuid.equalsIgnoreCase(serviceUuid)) {
                 List<BluetoothGattCharacteristic> characteristics = service.getCharacteristics();
                 //find requested characteristic
-                for(BluetoothGattCharacteristic characteristic : characteristics){
+                for (BluetoothGattCharacteristic characteristic : characteristics) {
                     String cUuid = characteristic.getUuid().toString();
-                    if(cUuid != null && cUuid.equalsIgnoreCase(characteristicUuid)){
-                        if(bluetoothGatt != null) {
+                    if (cUuid != null && cUuid.equalsIgnoreCase(characteristicUuid)) {
+                        if (bluetoothGatt != null) {
                             //set new data to characteristic
-                            if(withoutResponse){
+                            if (withoutResponse) {
                                 characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE);
                             } else {
                                 characteristic.setWriteType(BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT); // TODO: not tested
@@ -426,31 +542,45 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
                             characteristic.setValue(bArr);
                             //write the data to the characterustic
-                            if(!bluetoothGatt.writeCharacteristic(characteristic)){
-                                Log.d(TAG, "Error initating BLE write operation.");
-                            }
+                            ReadWriteOperation operation = new ReadWriteOperation(Type.WRITE, characteristic);
+                            queueReadWriteOperation(operation);
+
+                            // if (!bluetoothGatt.writeCharacteristic(characteristic)) {
+                            //     Log.d(TAG, "Error initating BLE write operation.");
+                            // }
                         }
-                    break;
+                        break;
                     }
                 }
-            break;
+                break;
             }
+        }
+    }
+
+    private void queueReadWriteOperation(ReadWriteOperation operation) {
+        try {
+            startReadWriteThread();
+            readWriteOperationQueue.add(operation);
+        } catch (NullPointerException e) {
+            throw new RuntimeException(TAG + " rw - queue is null");
         }
     }
 
     @Override
     public void onHostResume() {
+        startReadWriteThread();
         Log.d(TAG, "onHostResume");
     }
 
     @Override
     public void onHostPause() {
         Log.v(TAG, "onHostPause");
-        if(bluetoothLeScanner != null && scanCallback != null){
+        // stopReadWriteThread();
+        if (bluetoothLeScanner != null && scanCallback != null) {
             bluetoothLeScanner.stopScan(scanCallback);
             scanCallback = null;
         }
-        if (bluetoothGatt != null) {
+        if (DISCONNECT_ON_PAUSE && bluetoothGatt != null) {
             bluetoothGatt.disconnect();
             bluetoothGatt.close();
             bluetoothGatt = null;
@@ -461,6 +591,11 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
     @Override
     public void onHostDestroy() {
         Log.v(TAG, "onHostDestroy");
+        if (bluetoothLeScanner != null && scanCallback != null) {
+            bluetoothLeScanner.stopScan(scanCallback);
+            scanCallback = null;
+        }
+
         if (bluetoothGatt != null) {
             bluetoothGatt.disconnect();
             bluetoothGatt.close();
@@ -470,23 +605,22 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
     }
 
     private void sendEvent(String eventName, WritableMap params) {
-        getReactApplicationContext()
-            .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class)
-            .emit(eventName, params);
+        getReactApplicationContext().getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter.class).emit(eventName,
+                params);
     }
 
-    private List<ScanFilter> buildScanFilters() {
-        List<ScanFilter> scanFilters = new ArrayList<>();
+    // private List<ScanFilter> buildScanFilters() {
+    //     List<ScanFilter> scanFilters = new ArrayList<>();
 
-        ScanFilter.Builder builder = new ScanFilter.Builder();
-        if(serviceUuid != null){
-            //builder.setDeviceAddress(serviceUuid);
-            builder.setServiceUuid(ParcelUuid.fromString(serviceUuid));
-        }
-        scanFilters.add(builder.build());
+    //     ScanFilter.Builder builder = new ScanFilter.Builder();
+    //     if(serviceUuid != null){
+    //         //builder.setDeviceAddress(serviceUuid);
+    //         builder.setServiceUuid(ParcelUuid.fromString(serviceUuid));
+    //     }
+    //     scanFilters.add(builder.build());
 
-        return scanFilters;
-    }
+    //     return scanFilters;
+    // }
 
     private ScanSettings buildScanSettings() {
         ScanSettings.Builder builder = new ScanSettings.Builder();
@@ -494,7 +628,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         return builder.build();
     }
 
-    private String stateToString(int state){
+    private String stateToString(int state) {
         switch (state) {
             case BluetoothAdapter.STATE_OFF:
                 return "poweredOff";
@@ -506,9 +640,8 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 return "turningOn";
             default:
                 return "unknown";
-        }
+            }
     }
-
 
     // GATT callback and methods
     private class RnbleGattCallback extends BluetoothGattCallback {
@@ -532,7 +665,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 bluetoothGatt.discoverServices();
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 connectionState = STATE_DISCONNECTED;
-                if(bluetoothGatt != null){
+                if (bluetoothGatt != null) {
                     bluetoothGatt.close();
                     bluetoothGatt = null;
                 }
@@ -561,7 +694,9 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         }
 
         @Override
-        public void onCharacteristicRead (BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status){
+        public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
+            Log.d(TAG, "characteristic onRead");
+            responseReceived = true;
             byte[] characteristicValue = null;
             Boolean notification = false;
             if (status == BluetoothGatt.GATT_SUCCESS) {
@@ -584,9 +719,9 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
             rnbleModule.sendEvent("ble.data", params);
         }
 
-
         @Override
-        public void onCharacteristicWrite (BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status){
+        public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
+            responseReceived = true;
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 Log.d(TAG, "characteristic written successfully");
                 WritableMap params = Arguments.createMap();
@@ -606,11 +741,10 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         }
     };
 
-
-     private String toNobleUuid(String uuid) {
+    private String toNobleUuid(String uuid) {
         String result = uuid.replaceAll("[\\s\\-()]", "");
         return result.toLowerCase();
-     }
+    }
 
     //RnbleScanCallback scan callback
     private class RnbleScanCallback extends ScanCallback {
@@ -619,7 +753,6 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         public RnbleScanCallback(RNBLEModule rnbleModule) {
             this.rnbleModule = rnbleModule;
         }
-
 
         @Override
         public void onBatchScanResults(List<ScanResult> results) {
@@ -634,35 +767,35 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
             boolean isDuplicate = false;
 
-
             //filter out duplicate entries if requested
-            if(!rnbleModule.allowDuplicates){
-                for(String s : scannedDeviceAddresses){
+            if (!rnbleModule.allowDuplicates) {
+                for (String s : scannedDeviceAddresses) {
                     BluetoothDevice device = result.getDevice();
                     String address = device.getAddress();
 
-                    if(s.equals(address)) {
-                       isDuplicate = true;
-                       break;
+                    if (s.equals(address)) {
+                        isDuplicate = true;
+                        break;
                     }
                 }
             }
-
-            if(!isDuplicate){
+            if (!isDuplicate) {
                 scannedDeviceAddresses.add(result.getDevice().getAddress());
-                super.onScanResult(callbackType, result);
-
+                // super.onScanResult(callbackType, result);
                 //filter based on service UUID here, since ScanFilter class' service UUID filtering did not work in "Samsun Galaxy Tab S"
                 ScanRecord record = result.getScanRecord();
-                if(record != null){
-                  List<ParcelUuid> serviceUuids = record.getServiceUuids();
-                  if(serviceUuids != null){
-                    for(ParcelUuid p : serviceUuids){
-                      if(serviceUuid != null && p.toString().toUpperCase().equals(serviceUuid.toUpperCase())){
+                if (record != null) {
+                    List<ParcelUuid> serviceUuids = record.getServiceUuids();
+
+                    if (serviceUuids != null) {
+                        for (ParcelUuid p : serviceUuids) {
+                            if (serviceUuid != null && p.toString().toUpperCase().equals(serviceUuid.toUpperCase())) {
+                                processScanResult(result);
+                            }
+                        }
+                    } else if (serviceUuid == null || serviceUuid.isEmpty()) {
                         processScanResult(result);
-                      }
                     }
-                  }
                 }
             }
         }
@@ -675,20 +808,22 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
         private void processScanResult(ScanResult scanResult) {
 
-            if(scanResult == null) {return;}
+            if (scanResult == null) {
+                return;
+            }
 
             ScanRecord record = scanResult.getScanRecord();
             BluetoothDevice device = scanResult.getDevice();
 
-            if(record != null){
+            if (record != null) {
                 WritableMap params = Arguments.createMap();
                 WritableMap advertisement = Arguments.createMap();
 
                 //add service uuids to advertisement map
                 WritableArray serviceUuids = Arguments.createArray();
                 List<ParcelUuid> uuids = record.getServiceUuids();
-                if(uuids != null){
-                   for(ParcelUuid uuid : uuids){
+                if (uuids != null) {
+                    for (ParcelUuid uuid : uuids) {
                         serviceUuids.pushString(toNobleUuid(uuid.toString()));
                     }
                 }
@@ -699,10 +834,10 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 WritableArray serviceData = Arguments.createArray();
                 WritableMap serviceDataMap = Arguments.createMap();
 
-                if(uuids != null) {
-                    for(ParcelUuid uuid : uuids){
+                if (uuids != null) {
+                    for (ParcelUuid uuid : uuids) {
                         byte[] data = record.getServiceData(uuid);
-                        if(uuid != null && data != null){
+                        if (uuid != null && data != null) {
                             serviceDataMap.putString("uuid", toNobleUuid(uuid.toString()));
                             serviceDataMap.putString("data", Arrays.toString(data));
                             serviceData.pushMap(serviceDataMap);
@@ -713,10 +848,10 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
                 //add manufacturer data to advertisement map
                 byte[] manufacturerData = null;
-                if(record.getManufacturerSpecificData() != null){
+                if (record.getManufacturerSpecificData() != null) {
                     manufacturerData = record.getManufacturerSpecificData().valueAt(0);
                 }
-                if(manufacturerData != null){
+                if (manufacturerData != null) {
                     advertisement.putString("manufacturerData", Arrays.toString(manufacturerData));
                 } else {
                     advertisement.putNull("manufacturerData");
@@ -746,7 +881,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 int flags = record.getAdvertiseFlags();
                 params.putBoolean("connectable", (flags & 2) == 2); //TODO: double check this to ensure it is correct
 
-                Log.d(TAG, params.toString());
+                // Log.d(TAG, "--- sending event with:" + params.toString());
                 rnbleModule.sendEvent("ble.discover", params);
             }
         }

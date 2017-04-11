@@ -148,7 +148,8 @@ nobleBindings.write = function(deviceUuid, serviceUuid, characteristicUuid, data
 
 
 function toAppleUuid(uuid) {
- return uuid.replace(/(\S{8})(\S{4})(\S{4})(\S{4})(\S{12})/, "$1-$2-$3-$4-$5").toUpperCase();
+  if ( uuid === undefined ) return undefined;
+  return uuid.replace(/(\S{8})(\S{4})(\S{4})(\S{4})(\S{12})/, "$1-$2-$3-$4-$5").toUpperCase();
 }
 
 function toAppleUuids(uuids) {
