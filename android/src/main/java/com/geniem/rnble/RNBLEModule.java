@@ -125,6 +125,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
             public void run() {
                 while (true) {
                     try {
+                        Log.d(TAG, "processing new command from queue");
                         currentOperation = readWriteOperationQueue.take();
                         responseReceived = false;
                         currentOperation.handle(bluetoothGatt);
@@ -154,6 +155,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         while (!responseReceived) {
             int timeoutCounter = currentOperation.incrementTimeout();
             if (timeoutCounter * SLEEP_MS > TIMEOUT_MS) {
+                Log.d(TAG, "blockUntilResponseReceived timeout");
                 return;
             }
             Thread.sleep(SLEEP_MS);
@@ -689,7 +691,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
             Log.d(TAG, "characteristic onRead");
             responseReceived = true;
-            byte[] characteristicValue = null;
+            byte[] characteristicValue =  new byte[0];
             Boolean notification = false;
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 characteristicValue = characteristic.getValue();
