@@ -30,6 +30,8 @@ package com.geniem.rnble;
 import android.content.Context;
 import android.os.Handler;
 import android.util.Log;
+import android.os.SystemClock;
+
 
 import java.util.concurrent.BlockingQueue;
 
@@ -645,8 +647,10 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         }
 
         private synchronized void closeGatt() {
-          bluetoothGatt.close();
-          bluetoothGatt = null;
+          if(bluetoothGatt != null) {
+            bluetoothGatt.close();
+            bluetoothGatt = null;
+          }
           Log.d(TAG, "Closed GATT server.");
         }
 
@@ -664,9 +668,8 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 bluetoothGatt.discoverServices();
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 connectionState = STATE_DISCONNECTED;
-                if (bluetoothGatt != null) {
-                  this.closeGatt();
-                }
+                SystemClock.sleep(100);
+                this.closeGatt();
                 Log.d(TAG, "GATT server closed. Sending event to the client.");
                 rnbleModule.sendEvent("ble.disconnect", params);
             }
