@@ -644,6 +644,12 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
             this.rnbleModule = rnbleModule;
         }
 
+        private synchronized void closeGatt() {
+          bluetoothGatt.close();
+          bluetoothGatt = null;
+          Log.d(TAG, "Closed GATT server.");
+        }
+
         @Override
         public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
             BluetoothDevice remoteDevice = gatt.getDevice();
@@ -651,7 +657,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
             WritableMap params = Arguments.createMap();
             params.putString("peripheralUuid", remoteAddress); //remote address used here instead of uuid, not converted to noble format
 
-            if (newState == BluetoothProfile.STATE_CONNECTED) {
+            if (bluetoothGatt != null && newState == BluetoothProfile.STATE_CONNECTED) {
                 Log.d(TAG, "Connected to GATT server. Discovering services.");
                 connectionState = STATE_CONNECTED;
                 // Attempts to discover services after successful connection.
@@ -659,9 +665,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 connectionState = STATE_DISCONNECTED;
                 if (bluetoothGatt != null) {
-                    Log.d(TAG, "Closing GATT server.");
-                    bluetoothGatt.close();
-                    bluetoothGatt = null;
+                  this.closeGatt();
                 }
                 Log.d(TAG, "GATT server closed. Sending event to the client.");
                 rnbleModule.sendEvent("ble.disconnect", params);
