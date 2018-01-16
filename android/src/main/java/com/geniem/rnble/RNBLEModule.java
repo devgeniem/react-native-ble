@@ -274,6 +274,11 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
     @ReactMethod
     public void connect(final String peripheralUuid) { //in android peripheralUuid is the mac address of the BLE device
         Log.d(TAG, "RNBLE Connect called");
+        if (STATE_DISCONNECTED != connectionState) {
+            Log.e(TAG, "Connection already established or establishing, state is " + connectionState + ". Ignoring connection request.");
+            return;
+        }
+
         if (bluetoothAdapter == null || peripheralUuid == null) {
             Log.w(TAG, "BluetoothAdapter not initialized or unspecified peripheralUuid.");
 
@@ -689,7 +694,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 Log.w(TAG, "onServicesDiscovered received: " + status);
             }
 
-            connectionState = STATE_CONNECTED;
+            //connectionState = STATE_CONNECTED;
 
             BluetoothDevice remoteDevice = gatt.getDevice();
             String remoteAddress = remoteDevice.getAddress();
