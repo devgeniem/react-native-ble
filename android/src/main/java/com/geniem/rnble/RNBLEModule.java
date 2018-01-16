@@ -317,6 +317,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
         }
 
         bluetoothGatt = device.connectGatt(context, false, gattCallback);
+        // bluetoothGatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH);
         Log.d(TAG, "Trying to create a new connection.");
         bluetoothDeviceAddress = peripheralUuid;
         connectionState = STATE_CONNECTING;
@@ -394,7 +395,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                     int propertyBitmask = c.getProperties();
 
                     if ((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_BROADCAST) != 0) {
-                        properties.pushString("boradcast");
+                        properties.pushString("broadcast");
                     }
 
                     if ((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_READ) != 0) {
@@ -414,7 +415,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                     }
 
                     if ((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_INDICATE) != 0) {
-                        properties.pushString("indicaste");
+                        properties.pushString("indicate");
                     }
 
                     if ((propertyBitmask & BluetoothGattCharacteristic.PROPERTY_SIGNED_WRITE) != 0) {
@@ -665,7 +666,11 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
                 Log.d(TAG, "Connected to GATT server. Discovering services.");
                 connectionState = STATE_CONNECTED;
                 // Attempts to discover services after successful connection.
-                bluetoothGatt.discoverServices();
+                SystemClock.sleep(100); // On Android devices a 100 ms delay is recommended between successful connection and service discovery
+                boolean started = bluetoothGatt.discoverServices();
+                if (!started) {
+                    Log.e(TAG, "BLE service discovery did not start for some reason.");
+                }
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 connectionState = STATE_DISCONNECTED;
                 SystemClock.sleep(100);
@@ -765,7 +770,7 @@ class RNBLEModule extends ReactContextBaseJavaModule implements LifecycleEventLi
 
         @Override
         public void onScanResult(int callbackType, ScanResult result) {
-
+            super.onScanResult(callbackType, result);
             boolean isDuplicate = false;
 
             //filter out duplicate entries if requested
